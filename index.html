@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dayne Bonuses</title>
+    <script type="module" crossorigin src="/assets/index-DHAvNl_a.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-6rRdiaNn.css">
+  </head>
+  <body>
+    <div id="app">
+      <div class="top-bar">
+        <div class="tabs">
+          <button class="tab active" data-sheet="cleaned">Clean</button>
+          <button class="tab" data-sheet="raw">Raw</button>
+          <button class="tab" data-sheet="upload">Upload</button>
+          <button class="tab reset-tab" data-sheet="reset">Reset</button>
+        </div>
+        <div class="upload-area" id="uploadArea">
+          <input type="file" id="fileInput" accept=".csv" hidden />
+          <button class="upload-btn" id="uploadBtn">+ Upload CSV</button>
+          <span class="file-name" id="fileName"></span>
+        </div>
+      </div>
+      <div class="sheet-info" id="sheetInfo"></div>
+      <div class="table-wrapper">
+        <table id="dataTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>
