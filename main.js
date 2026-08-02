@@ -1,8 +1,8 @@
 import Papa from 'papaparse';
 
 const SHEETS = {
-  raw: '/dayne-bonuses.csv',
-  cleaned: '/dayne-bonuses-cleaned.csv'
+  raw: 'dayne-bonuses.csv',
+  cleaned: 'dayne-bonuses-cleaned.csv'
 };
 
 const HIDDEN_COLS_CLEANED = new Set(['rollover','claimconfig','claimcondition','bonus','bonusrandom','maxtopup','referlink','is_new']);
