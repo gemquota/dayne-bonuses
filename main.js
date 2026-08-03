@@ -8,7 +8,7 @@ const SHEETS = {
 const HIDDEN_COLS_CLEANED = new Set(['rollover','claimconfig','claimcondition','bonus','bonusrandom','maxtopup','referlink','is_new']);
 const HEADER_RENAME = { 'mintopup': 'Min $ In', 'perceived_value': 'Value' };
 const CLEANED_COL_ORDER = ['url','name','amount','minwithdraw','maxwithdraw','ratio','perceived_value','reset','mintopup'];
-const KNOWN_HEADERS = ['url','mname','id','name','transactiontype','bonusfixed','amount','minwithdraw','maxwithdraw','rollover','balance','claimconfig','claimcondition','bonus','bonusrandom','reset','mintopup','maxtopup','referlink','perceived_value','is_new'];
+const KNOWN_HEADERS = ['url','mname','id','name','transactiontype','bonusfixed','amount','minwithdraw','maxwithdraw','rollover','balance','claimconfig','claimcondition','bonus','bonusrandom','reset','mintopup','maxtopup','referlink','perceived_value','is_new','is_last'];
 
 let currentSheet = 'cleaned';
 let rawData = null;
@@ -27,6 +27,7 @@ const sheetInfo = document.getElementById('sheetInfo');
 const fileInput = document.getElementById('fileInput');
 const uploadBtn = document.getElementById('uploadBtn');
 const fileName = document.getElementById('fileName');
+const lastScrapeOnly = document.getElementById('lastScrapeOnly');
 
 tabs.forEach(tab => {
   tab.addEventListener('click', () => {
@@ -47,6 +48,8 @@ tabs.forEach(tab => {
     renderTable();
   });
 });
+
+lastScrapeOnly.addEventListener('change', renderTable);
 
 uploadBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => {
@@ -246,6 +249,12 @@ function renderTable() {
   // Remove hidden rows by key
   const hiddenKeys = hiddenRowKeys[currentSheet] || new Set();
   rows = rows.filter(r => !hiddenKeys.has(rowKey(r)));
+
+  // Last-scrape-only filter
+  if (lastScrapeOnly.checked) {
+    const isLastIdx = headers.indexOf('is_last');
+    if (isLastIdx !== -1) rows = rows.filter(r => String(r[isLastIdx] ?? '').trim() === '1');
+  }
 
   // Apply sorts
   for (const [colIdx, dir] of Object.entries(sortStates)) {
