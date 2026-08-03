@@ -44,14 +44,6 @@ body {
 .reset-tab:hover { background: #3d1a1a !important; color: #f78166 !important; }
 .reset-tab.active::after { background: #f78166 !important; }
 
-.last-scrape-toggle {
-  display: flex; align-items: center; gap: 6px; padding: 0 16px;
-  border-left: 1px solid #2d2f3a; color: #8b8fa3; font-size: 13px;
-  cursor: pointer; user-select: none; flex-shrink: 0;
-}
-
-.last-scrape-toggle input { accent-color: #58a6ff; cursor: pointer; }
-
 .upload-area {
   display: flex; align-items: center; gap: 8px; padding: 0 16px;
   border-left: 1px solid #2d2f3a; flex-shrink: 0;
