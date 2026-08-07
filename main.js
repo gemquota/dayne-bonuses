@@ -2,7 +2,9 @@ import Papa from 'papaparse';
 
 const SHEETS = {
   raw: 'dayne-bonuses.csv',
-  cleaned: 'dayne-bonuses-cleaned.csv'
+  cleaned: 'dayne-bonuses-cleaned.csv',
+  sites: 'dayne-sites.csv',
+  bonusesAll: 'dayne-bonuses-all.csv'
 };
 
 const HIDDEN_COLS_CLEANED = new Set(['rollover','claimconfig','claimcondition','bonus','bonusrandom','maxtopup','referlink','is_new']);
@@ -10,7 +12,7 @@ const HEADER_RENAME = { 'mintopup': 'Min $ In', 'perceived_value': 'Value' };
 const CLEANED_COL_ORDER = ['url','name','amount','minwithdraw','maxwithdraw','ratio','perceived_value','reset','mintopup'];
 const KNOWN_HEADERS = ['url','mname','id','name','transactiontype','bonusfixed','amount','minwithdraw','maxwithdraw','rollover','balance','claimconfig','claimcondition','bonus','bonusrandom','reset','mintopup','maxtopup','referlink','perceived_value','is_new'];
 
-let currentSheet = 'cleaned';
+let currentSheet = 'sites';
 let rawData = null;
 let cleanedData = null;
 let uploadData = null;
@@ -19,6 +21,12 @@ let nameExpandedRow = null;
 let rawMnameMap = {};
 let hiddenRowKeys = {};
 let wideCols = {};
+let sitesData = null;
+let bonusesAllData = null;
+let sitesSort = {};
+let sitesSearch = '';
+let sitesHiddenCols = new Set();
+let siteDetailUrl = null;
 
 const tabs = document.querySelectorAll('.tab');
 const thead = document.getElementById('tableHead');
@@ -27,6 +35,17 @@ const sheetInfo = document.getElementById('sheetInfo');
 const fileInput = document.getElementById('fileInput');
 const uploadBtn = document.getElementById('uploadBtn');
 const fileName = document.getElementById('fileName');
+const sitesSearchInput = document.getElementById('sitesSearch');
+const colsBtn = document.getElementById('colsBtn');
+const colsDropdown = document.getElementById('colsDropdown');
+const sitesToolbar = document.getElementById('sitesToolbar');
+const detailOverlay = document.getElementById('detailOverlay');
+const detailTitle = document.getElementById('detailTitle');
+const detailSub = document.getElementById('detailSub');
+const detailTable = document.getElementById('detailTable');
+const detailHead = document.getElementById('detailHead');
+const detailBody = document.getElementById('detailBody');
+const detailClose = document.getElementById('detailClose');
 
 tabs.forEach(tab => {
   tab.addEventListener('click', () => {
@@ -35,7 +54,12 @@ tabs.forEach(tab => {
       sortStates = {};
       nameExpandedRow = null;
       wideCols = {};
-      renderTable();
+      sitesSort = {};
+      sitesSearch = '';
+      sitesHiddenCols = new Set();
+      if (sitesSearchInput) sitesSearchInput.value = '';
+      closeDetail();
+      renderCurrent();
       return;
     }
     tabs.forEach(t => t.classList.remove('active'));
@@ -44,7 +68,7 @@ tabs.forEach(tab => {
     sortStates = {};
     nameExpandedRow = null;
     wideCols = {};
-    renderTable();
+    renderCurrent();
   });
 });
 
@@ -66,12 +90,18 @@ fileInput.addEventListener('change', (e) => {
         sortStates = {};
         nameExpandedRow = null;
         wideCols = {};
-        renderTable();
+        renderCurrent();
       }
     });
   };
   reader.readAsText(file);
 });
+
+function renderCurrent() {
+  sitesToolbar.hidden = currentSheet !== 'sites';
+  if (currentSheet === 'sites') { renderSites(); return; }
+  renderTable();
+}
 
 document.addEventListener('click', () => {
   if (nameExpandedRow !== null) {
@@ -379,6 +409,186 @@ function renderTable() {
   });
 }
 
+// ── Sites spreadsheet (all sites from urls/oldurls + DB aggregates) ──
+const NUMERIC_SITE_COLS = new Set([
+  'failures','tracked_days','bonus_count','window_count','last_24h_count','prev_24h_count',
+  'distinct_days','total_amount','avg_amount','max_amount','total_perceived','avg_perceived',
+  'commission_count','commission_total','avg_minwithdraw','avg_maxwithdraw','avg_rollover',
+  'bonuses_per_day','recent_share','growth_24h','hours_since_seen','avg_withdraw_headroom',
+  'avg_ratio','avg_rollover_burden','value_per_bonus','value_per_rollover','commission_share',
+  'avg_bonus_lifetime_days','stability','avg_daily_value','active_today'
+]);
+
+function fmtCell(h, val) {
+  if (val === null || val === undefined || val === '') return '';
+  const s = String(val);
+  const t = s.trim();
+  if (t !== '' && /^-?\d+(\.\d+)?$/.test(t)) {
+    const n = parseFloat(t);
+    return n.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  }
+  return s;
+}
+
+function renderSites() {
+  if (!sitesData) return;
+  const headers = sitesData[0];
+  const allRows = sitesData.slice(1).filter(r => !isEmptyRow(r));
+  const visIdxs = headers.map((h, i) => i).filter(i => !sitesHiddenCols.has(i));
+
+  let rows = allRows;
+  if (sitesSearch.trim()) {
+    const q = sitesSearch.toLowerCase();
+    rows = rows.filter(r => r.some((c, i) => visIdxs.includes(i) && String(c ?? '').toLowerCase().includes(q)));
+  }
+  for (const [ci, dir] of Object.entries(sitesSort)) {
+    if (dir === 'default') continue;
+    const idx = parseInt(ci);
+    rows.sort((a, b) => compareRows(a, b, idx, dir, headers, 'sites'));
+  }
+
+  sheetInfo.textContent = `${headers.length} columns · ${rows.length} sites`;
+  thead.innerHTML = ''; tbody.innerHTML = '';
+
+  const tr = document.createElement('tr');
+  visIdxs.forEach(i => {
+    const h = headers[i];
+    const th = document.createElement('th');
+    th.dataset.col = i; th.dataset.header = h;
+    const dir = sitesSort[i];
+    if (dir && dir !== 'default') {
+      th.classList.add('sorted');
+      th.innerHTML = `${h} <span class="sort-arrow">${dir === 'asc' ? '▲' : '▼'}</span>`;
+    } else {
+      th.textContent = h;
+    }
+    th.addEventListener('click', () => {
+      const cur = sitesSort[i] || 'default';
+      sitesSort[i] = cur === 'default' ? 'desc' : (cur === 'desc' ? 'asc' : 'default');
+      renderSites();
+    });
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+
+  rows.forEach(row => {
+    const rTr = document.createElement('tr');
+    rTr.classList.add('row-click');
+    rTr.addEventListener('click', () => openSiteDetail(row[0]));
+    visIdxs.forEach(i => {
+      const h = headers[i];
+      const td = document.createElement('td');
+      const val = row[i] ?? '';
+      if (i === 0 && val) {
+        const a = document.createElement('a');
+        a.href = val; a.textContent = stripUrl(val); a.target = '_blank'; a.rel = 'noopener';
+        a.addEventListener('click', e => e.stopPropagation());
+        td.appendChild(a);
+      } else {
+        td.textContent = fmtCell(h, val);
+      }
+      if (NUMERIC_SITE_COLS.has(h)) td.style.textAlign = 'right';
+      if (h === 'status') {
+        const st = String(val).toLowerCase();
+        td.classList.add('chip');
+        td.classList.add(st === 'ok' ? 'st-ok' : (st.includes('block') || st.includes('fail') ? 'st-bad' : 'st-warn'));
+      }
+      if (h === 'source') {
+        td.classList.add('chip');
+        if (String(val) === 'urls') td.classList.add('st-ok');
+        else if (String(val) === 'oldurls') td.classList.add('st-warn');
+      }
+      rTr.appendChild(td);
+    });
+    tbody.appendChild(rTr);
+  });
+}
+
+function buildColsDropdown() {
+  if (!sitesData) return;
+  const headers = sitesData[0];
+  colsDropdown.innerHTML = '';
+  headers.forEach((h, i) => {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = !sitesHiddenCols.has(i);
+    cb.addEventListener('change', () => {
+      if (cb.checked) sitesHiddenCols.delete(i); else sitesHiddenCols.add(i);
+      renderSites();
+    });
+    const span = document.createElement('span'); span.textContent = h;
+    label.appendChild(cb); label.appendChild(span);
+    colsDropdown.appendChild(label);
+  });
+}
+
+function openSiteDetail(url) {
+  if (!bonusesAllData || !sitesData) return;
+  const headers = bonusesAllData[0];
+  const rows = bonusesAllData.slice(1).filter(r => r[0] === url && !isEmptyRow(r));
+  const siteRow = sitesData.slice(1).find(r => r[0] === url);
+  detailTitle.textContent = stripUrl(url) + (siteRow && siteRow[1] ? ' — ' + siteRow[1] : '');
+  if (siteRow) {
+    detailSub.textContent = `Status: ${siteRow[3] || '—'} · Source: ${siteRow[2] || '—'} · Bonuses: ${siteRow[9] ?? 0} · Total: $${fmtCell('total_amount', siteRow[14])}`;
+  } else {
+    detailSub.textContent = '';
+  }
+  detailHead.innerHTML = ''; detailBody.innerHTML = '';
+  const tr = document.createElement('tr');
+  headers.forEach(h => {
+    const th = document.createElement('th'); th.textContent = h; tr.appendChild(th);
+  });
+  detailHead.appendChild(tr);
+  rows.forEach(row => {
+    const rTr = document.createElement('tr');
+    headers.forEach((h, i) => {
+      const td = document.createElement('td');
+      const val = row[i] ?? '';
+      if (i === 0 && val) {
+        const a = document.createElement('a');
+        a.href = val; a.textContent = stripUrl(val); a.target = '_blank'; a.rel = 'noopener';
+        td.appendChild(a);
+      } else {
+        td.textContent = fmtCell(h, val);
+      }
+      if (NUMERIC_SITE_COLS.has(h) || ['amount','perceived_value','ratio','headroom','rollover_amount','value_per_rollover','days_visible','bonus_lifetime_days'].includes(h)) {
+        td.style.textAlign = 'right';
+      }
+      rTr.appendChild(td);
+    });
+    detailBody.appendChild(rTr);
+  });
+  siteDetailUrl = url;
+  detailOverlay.hidden = false;
+}
+
+function closeDetail() {
+  detailOverlay.hidden = true;
+  siteDetailUrl = null;
+}
+
+document.addEventListener('click', () => {
+  if (colsDropdown && !colsDropdown.hidden) colsDropdown.hidden = true;
+});
+
+if (sitesSearchInput) {
+  sitesSearchInput.addEventListener('input', () => {
+    sitesSearch = sitesSearchInput.value;
+    renderSites();
+  });
+}
+if (colsBtn) {
+  colsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    buildColsDropdown();
+    colsDropdown.hidden = !colsDropdown.hidden;
+  });
+}
+if (detailClose) detailClose.addEventListener('click', closeDetail);
+if (detailOverlay) {
+  detailOverlay.addEventListener('click', (e) => { if (e.target === detailOverlay) closeDetail(); });
+}
+
 function buildRawMnameMap(headers, rows) {
   const urlIdx = headers.indexOf('url'); const mnameIdx = headers.indexOf('mname'); const map = {};
   rows.forEach(row => { if (urlIdx !== -1 && mnameIdx !== -1 && row[urlIdx]) map[row[urlIdx]] = row[mnameIdx]; });
@@ -404,7 +614,16 @@ async function init() {
 
   const mwIdx = ch.indexOf('maxwithdraw');
   if (mwIdx !== -1) sortStates[mwIdx] = 'desc-zero-top';
-  renderTable();
+
+  const sitesRaw = await loadSheet(SHEETS.sites);
+  const [sh, ...sr] = sitesRaw;
+  sitesData = [sh, ...sr.filter(r => !isEmptyRow(r))];
+
+  const allRaw = await loadSheet(SHEETS.bonusesAll);
+  const [ah, ...ar] = allRaw;
+  bonusesAllData = [ah, ...ar.filter(r => !isEmptyRow(r))];
+
+  renderCurrent();
 }
 
 document.addEventListener('DOMContentLoaded', init);

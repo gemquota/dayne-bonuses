@@ -10,7 +10,8 @@
     <div id="app">
       <div class="top-bar">
       <div class="tabs">
-        <button class="tab active" data-sheet="cleaned">Clean</button>
+        <button class="tab active" data-sheet="sites">Sites</button>
+        <button class="tab" data-sheet="cleaned">Clean</button>
         <button class="tab" data-sheet="raw">Raw</button>
         <button class="tab" data-sheet="upload">Upload</button>
         <button class="tab reset-tab" data-sheet="reset">Reset</button>
@@ -22,11 +23,33 @@
         </div>
       </div>
       <div class="sheet-info" id="sheetInfo"></div>
+      <div class="sites-toolbar" id="sitesToolbar" hidden>
+        <input type="search" id="sitesSearch" placeholder="Search sites, merchants, status…" autocomplete="off" />
+        <div class="cols-wrap">
+          <button class="cols-btn" id="colsBtn" type="button">Columns ▾</button>
+          <div class="cols-dropdown" id="colsDropdown" hidden></div>
+        </div>
+      </div>
       <div class="table-wrapper">
         <table id="dataTable">
           <thead id="tableHead"></thead>
           <tbody id="tableBody"></tbody>
         </table>
+      </div>
+      <div class="detail-overlay" id="detailOverlay" hidden>
+        <div class="detail-panel">
+          <div class="detail-head">
+            <div class="detail-title" id="detailTitle"></div>
+            <button class="detail-close" id="detailClose" type="button">✕</button>
+          </div>
+          <div class="detail-sub" id="detailSub"></div>
+          <div class="table-wrapper detail-table">
+            <table id="detailTable">
+              <thead id="detailHead"></thead>
+              <tbody id="detailBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/main.js"></script>
