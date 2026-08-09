@@ -4,7 +4,8 @@ const SHEETS = {
   raw: 'dayne-bonuses.csv',
   cleaned: 'dayne-bonuses-cleaned.csv',
   sites: 'dayne-sites.csv',
-  bonusesAll: 'dayne-bonuses-all.csv'
+  bonusesAll: 'dayne-bonuses-all.csv',
+  fresh: 'dayne-bonuses-fresh.csv'
 };
 
 const HEADER_RENAME = {
@@ -144,6 +145,7 @@ function isLinkCol(h) {
 let currentSheet = 'sites';
 let rawData = null;
 let cleanedData = null;
+let freshData = null;
 let uploadData = null;
 let sortStates = {};
 let nameExpandedRow = null;
@@ -245,6 +247,7 @@ function defaultSortFor(sheet) {
   if (sheet === 'sites') return {};
   const data = sheet === 'upload' ? uploadData
     : sheet === 'raw' ? rawData
+    : sheet === 'fresh' ? freshData
     : sheet === 'bonusesAll' ? bonusesAllData
     : sheet === 'combined' ? combinedData
     : cleanedData;
@@ -467,6 +470,7 @@ function legendChip(label, hue, count, active, onClick) {
 function currentHeaders() {
   const data = currentSheet === 'upload' ? uploadData
     : currentSheet === 'raw' ? rawData
+    : currentSheet === 'fresh' ? freshData
     : currentSheet === 'bonusesAll' ? bonusesAllData
     : currentSheet === 'combined' ? combinedData
     : currentSheet === 'sites' ? sitesData
@@ -547,6 +551,7 @@ function renderTable() {
 
   const data = currentSheet === 'upload' ? uploadData
     : currentSheet === 'raw' ? rawData
+    : currentSheet === 'fresh' ? freshData
     : currentSheet === 'bonusesAll' ? bonusesAllData
     : currentSheet === 'combined' ? combinedData
     : cleanedData;
@@ -1024,6 +1029,10 @@ async function init() {
   const cleanedRaw = await loadSheet(SHEETS.cleaned);
   const [ch, ...cr] = cleanedRaw;
   cleanedData = [ch, ...cr.filter(r => !isEmptyRow(r))];
+
+  const freshRaw = await loadSheet(SHEETS.fresh);
+  const [fh, ...fr] = freshRaw;
+  freshData = [fh, ...fr.filter(r => !isEmptyRow(r))];
 
   const amtIdx = ch.indexOf('amount');
   if (amtIdx !== -1) sortStates[String(amtIdx)] = 'desc';
