@@ -220,8 +220,43 @@ tbody td {
 
 tbody tr {
   background: hsla(var(--row-hue, 215), 70%, 60%, 0.040);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y;
 }
 tbody tr:hover { background: hsla(var(--row-hue, 215), 70%, 60%, 0.095); }
+
+/* ── Row long-press context menu ── */
+.row-menu {
+  position: fixed; z-index: 90;
+  background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+
+.row-menu[hidden] { display: none; }
+
+.row-menu-title {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  word-break: break-word; line-height: 1.35;
+  padding: 2px 2px 8px; border-bottom: 1px solid var(--line-soft);
+}
+
+.row-menu-delete {
+  min-height: 56px; width: 100%; border: none; border-radius: 12px;
+  background: #d92d20; color: #fff; font-size: 17px; font-weight: 800;
+  font-family: var(--font-body); cursor: pointer; letter-spacing: 0.3px;
+}
+
+.row-menu-delete:active { background: #b42318; }
+
+.row-menu-cancel {
+  min-height: 40px; width: 100%; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel-2); color: var(--muted);
+  font-size: 14px; font-weight: 600; font-family: var(--font-body); cursor: pointer;
+}
 
 /* ── Type chips ── */
 .col-type { white-space: nowrap; }

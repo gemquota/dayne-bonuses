@@ -150,7 +150,7 @@ let uploadData = null;
 let sortStates = {};
 let nameExpandedRow = null;
 let rawMnameMap = {};
-let hiddenRowKeys = {};
+let hiddenRows = new Set();
 let wideCols = {};
 let typeFilter = null;
 let sitesData = null;
@@ -161,6 +161,17 @@ let sitesSearch = '';
 let sitesHiddenCols = new Set();
 let hiddenGroupsBySheet = {};
 let siteDetailUrl = null;
+
+const HIDDEN_STORAGE_KEY = 'dayne_hidden_rows';
+function loadHiddenRows() {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_STORAGE_KEY) || '[]');
+    hiddenRows = new Set(Array.isArray(v) ? v.filter(Boolean) : []);
+  } catch { hiddenRows = new Set(); }
+}
+function saveHiddenRows() {
+  try { localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify([...hiddenRows])); } catch {}
+}
 
 const tabs = document.querySelectorAll('.tab');
 const thead = document.getElementById('tableHead');
@@ -181,11 +192,54 @@ const detailTable = document.getElementById('detailTable');
 const detailHead = document.getElementById('detailHead');
 const detailBody = document.getElementById('detailBody');
 const detailClose = document.getElementById('detailClose');
+const rowMenu = document.getElementById('rowMenu');
+const rowMenuTitle = document.getElementById('rowMenuTitle');
+const rowMenuDelete = document.getElementById('rowMenuDelete');
+const rowMenuCancel = document.getElementById('rowMenuCancel');
+let pendingDeleteKey = null;
+
+function showRowMenu(row, headers, x, y) {
+  const nameIdx = headers ? headers.indexOf('name') : 3;
+  const amtIdx = headers ? headers.indexOf('amount') : 6;
+  const name = nameIdx !== -1 ? (row[nameIdx] ?? '') : '';
+  const amt = amtIdx !== -1 ? (row[amtIdx] ?? '') : '';
+  rowMenuTitle.textContent = `${name}${amt !== '' && amt != null ? ' — $' + amt : ''} · ${stripUrl(row[0] || '')}`;
+  pendingDeleteKey = rowKey(row, headers);
+  rowMenu.hidden = false;
+  const vw = window.innerWidth || 320;
+  const vh = window.innerHeight || 600;
+  const menuW = Math.min(340, vw - 24);
+  const mx = Math.max(12, Math.min(x || 120, vw - menuW - 12));
+  const my = Math.max(12, Math.min(y || 120, vh - 200));
+  rowMenu.style.width = menuW + 'px';
+  rowMenu.style.left = mx + 'px';
+  rowMenu.style.top = my + 'px';
+}
+
+function closeRowMenu() {
+  rowMenu.hidden = true;
+  pendingDeleteKey = null;
+}
+
+rowMenuDelete.addEventListener('click', () => {
+  if (pendingDeleteKey) {
+    hiddenRows.add(pendingDeleteKey);
+    saveHiddenRows();
+  }
+  closeRowMenu();
+  renderCurrent();
+});
+rowMenuCancel.addEventListener('click', closeRowMenu);
+rowMenu.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', e => {
+  if (rowMenu && !rowMenu.contains(e.target)) closeRowMenu();
+});
 
 tabs.forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.sheet === 'reset') {
-      hiddenRowKeys = {};
+      hiddenRows = new Set();
+      saveHiddenRows();
       sortStates = {};
       nameExpandedRow = null;
       wideCols = {};
@@ -347,8 +401,21 @@ function isEmptyRow(row) {
   return row.every(cell => !cell || String(cell).trim() === '');
 }
 
-function rowKey(row) {
-  return (row[0] || '') + '|' + (row[2] || '') + '|' + (row[3] || '');
+function normAmount(val) {
+  if (val === null || val === undefined || val === '') return String(val ?? '');
+  const n = parseFloat(val);
+  return Number.isNaN(n) ? String(val) : String(n);
+}
+
+function rowKey(row, headers) {
+  let amt = '';
+  if (headers) {
+    const ai = headers.indexOf('amount');
+    if (ai !== -1) amt = normAmount(row[ai]);
+  } else {
+    amt = normAmount(row[6]);
+  }
+  return (row[0] || '') + '|' + (row[2] || '') + '|' + (row[3] || '') + '|' + amt;
 }
 
 function numVal(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
@@ -565,8 +632,7 @@ function renderTable() {
   const nameIdx = headers.indexOf('name');
 
   // Remove hidden rows by key
-  const hiddenKeys = hiddenRowKeys[currentSheet] || new Set();
-  rows = rows.filter(r => !hiddenKeys.has(rowKey(r)));
+  rows = rows.filter(r => !hiddenRows.has(rowKey(r, headers)));
 
   // Category filter (legend) + counts
   const legendCounts = {};
@@ -639,27 +705,30 @@ function renderTable() {
   tbody.innerHTML = '';
   rows.forEach((row, ri) => {
     const tr = document.createElement('tr');
-    const key = rowKey(row);
 
     let longPressTimer = null;
-    tr.addEventListener('mousedown', () => {
-      longPressTimer = setTimeout(() => {
-        if (!hiddenRowKeys[currentSheet]) hiddenRowKeys[currentSheet] = new Set();
-        hiddenRowKeys[currentSheet].add(key);
-        renderTable();
-      }, 500);
+    let suppressClickUntil = 0;
+    const cancelLongPress = () => clearTimeout(longPressTimer);
+    const fireLongPress = (x, y) => {
+      suppressClickUntil = Date.now() + 650;
+      showRowMenu(row, headers, x, y);
+    };
+    tr.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      longPressTimer = setTimeout(() => fireLongPress(e.clientX, e.clientY), 500);
     });
-    tr.addEventListener('mouseup', () => clearTimeout(longPressTimer));
-    tr.addEventListener('mouseleave', () => clearTimeout(longPressTimer));
-    tr.addEventListener('touchstart', () => {
-      longPressTimer = setTimeout(() => {
-        if (!hiddenRowKeys[currentSheet]) hiddenRowKeys[currentSheet] = new Set();
-        hiddenRowKeys[currentSheet].add(key);
-        renderTable();
-      }, 500);
+    tr.addEventListener('mouseup', cancelLongPress);
+    tr.addEventListener('mouseleave', cancelLongPress);
+    tr.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      longPressTimer = setTimeout(() => fireLongPress(t.clientX, t.clientY), 500);
+    }, { passive: true });
+    tr.addEventListener('touchend', cancelLongPress);
+    tr.addEventListener('touchmove', cancelLongPress);
+    tr.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      fireLongPress(e.clientX, e.clientY);
     });
-    tr.addEventListener('touchend', () => clearTimeout(longPressTimer));
-    tr.addEventListener('touchmove', () => clearTimeout(longPressTimer));
 
     const type = nameIdx !== -1 ? classifyBonus(row[nameIdx]) : OTHER_TYPE;
     tr.style.setProperty('--row-hue', type.hue);
@@ -710,6 +779,7 @@ function renderTable() {
         td.classList.add('col-name');
         if (nameExpandedRow === ri) td.classList.add('expanded');
         td.addEventListener('click', (e) => {
+          if (Date.now() < suppressClickUntil) return;
           e.stopPropagation();
           nameExpandedRow = (nameExpandedRow === ri) ? null : ri;
           renderTable();
@@ -988,7 +1058,11 @@ function buildCombinedData() {
   [...sh, ...rh, ...ch].forEach(h => { if (!headers.includes(h)) headers.push(h); });
 
   const ix = (hs, h) => hs.indexOf(h);
-  const keyOf = (r, hs) => `${r[ix(hs, 'url')] ?? ''}|${r[ix(hs, 'id')] ?? ''}|${r[ix(hs, 'name')] ?? ''}`;
+  const keyOf = (r, hs) => {
+    const ai = ix(hs, 'amount');
+    const amt = ai !== -1 ? normAmount(r[ai]) : '';
+    return `${r[ix(hs, 'url')] ?? ''}|${r[ix(hs, 'id')] ?? ''}|${r[ix(hs, 'name')] ?? ''}|${amt}`;
+  };
   const siteByUrl = new Map(sr.map(r => [r[ix(sh, 'url')], r]));
   const rawByKey = new Map(rr.map(r => [keyOf(r, rh), r]));
   const cleanedByKey = new Map(cr.map(r => [keyOf(r, ch), r]));
@@ -1014,6 +1088,7 @@ function buildCombinedData() {
 }
 
 async function init() {
+  loadHiddenRows();
   const rawRaw = await loadSheet(SHEETS.raw);
   const [rh, ...rr] = rawRaw;
   const rawRows = rr.filter(r => !isEmptyRow(r));
