@@ -142,7 +142,7 @@ function isLinkCol(h) {
   return h === 'url' || h === 'referral_url' || h === 'short_url';
 }
 
-let currentSheet = 'sites';
+let currentSheet = 'all';
 let rawData = null;
 let cleanedData = null;
 let freshData = null;
@@ -237,20 +237,17 @@ fileInput.addEventListener('change', (e) => {
 });
 
 function renderCurrent() {
-  sitesToolbar.hidden = currentSheet !== 'sites';
-  if (currentSheet === 'sites') { renderSites(); return; }
+  sitesToolbar.hidden = true;
   renderTable();
 }
 
 // Default column sort per sheet: highest amount first whenever an amount column exists.
 function defaultSortFor(sheet) {
-  if (sheet === 'sites') return {};
   const data = sheet === 'upload' ? uploadData
     : sheet === 'raw' ? rawData
     : sheet === 'fresh' ? freshData
-    : sheet === 'bonusesAll' ? bonusesAllData
-    : sheet === 'combined' ? combinedData
-    : cleanedData;
+    : sheet === 'cleaned' ? cleanedData
+    : combinedData;
   if (!data || data.length < 2) return {};
   const amtIdx = data[0].indexOf('amount');
   return amtIdx !== -1 ? { [String(amtIdx)]: 'desc' } : {};
@@ -471,10 +468,8 @@ function currentHeaders() {
   const data = currentSheet === 'upload' ? uploadData
     : currentSheet === 'raw' ? rawData
     : currentSheet === 'fresh' ? freshData
-    : currentSheet === 'bonusesAll' ? bonusesAllData
-    : currentSheet === 'combined' ? combinedData
-    : currentSheet === 'sites' ? sitesData
-    : cleanedData;
+    : currentSheet === 'cleaned' ? cleanedData
+    : combinedData;
   return data ? data[0] : null;
 }
 
@@ -552,9 +547,8 @@ function renderTable() {
   const data = currentSheet === 'upload' ? uploadData
     : currentSheet === 'raw' ? rawData
     : currentSheet === 'fresh' ? freshData
-    : currentSheet === 'bonusesAll' ? bonusesAllData
-    : currentSheet === 'combined' ? combinedData
-    : cleanedData;
+    : currentSheet === 'cleaned' ? cleanedData
+    : combinedData;
   if (!data) return;
   headers = data[0];
   rows = data.slice(1).filter(r => !isEmptyRow(r));
@@ -1034,9 +1028,6 @@ async function init() {
   const [fh, ...fr] = freshRaw;
   freshData = [fh, ...fr.filter(r => !isEmptyRow(r))];
 
-  const amtIdx = ch.indexOf('amount');
-  if (amtIdx !== -1) sortStates[String(amtIdx)] = 'desc';
-
   const sitesRaw = await loadSheet(SHEETS.sites);
   const [sh, ...sr] = sitesRaw;
   sitesData = [sh, ...sr.filter(r => !isEmptyRow(r))];
@@ -1046,6 +1037,8 @@ async function init() {
   bonusesAllData = [ah, ...ar.filter(r => !isEmptyRow(r))];
 
   combinedData = buildCombinedData();
+  const amtIdx = combinedData ? combinedData[0].indexOf('amount') : -1;
+  if (amtIdx !== -1) sortStates[String(amtIdx)] = 'desc';
 
   renderCurrent();
 }
