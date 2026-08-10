@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { TYPE_RULES, OTHER_TYPE, CAT_ORDER, CAT_RANK, COLUMN_GROUPS, OTHER_GROUP, colGroup, stripTags, classifyBonus, catHue } from './src/colors.js';
 
 const SHEETS = {
   raw: 'dayne-bonuses.csv',
@@ -91,53 +92,6 @@ const NUMERIC_COLS = new Set([
   'minround','maxround','initialfreelimit','depositfreelimit','minbet','transactioncash','displayorder'
 ]);
 
-// ── Bonus classification (two levels, one cohesive hue system) ──
-// Level 1 = category (hue family). Level 2 = subcategory (shade inside the family).
-// Families sit next to each other on the wheel so related bonuses share neighbouring hues:
-// referral/social (greens) → commission (teal) → rebate (cyan) → daily (blue) → app (steel)
-// → welcome (violet) → spins (magenta) → free (gold) → deposit (orange) → vip (red).
-const TYPE_RULES = [
-  { cat: 'Commission', sub: 'commission', hue: 170, re: /commis/i },
-  { cat: 'Referral',   sub: 'share',      hue: 138, re: /\b(share|refer(?:ral)?|invite|friend|downline|partner)\b/i },
-  { cat: 'Referral',   sub: 'social',     hue: 96,  re: /\b(telegram|subscribe|official|social)\b/i },
-  { cat: 'Welcome',    sub: 'welcome',    hue: 266, re: /\b(welcome|new register|register|sign\s?up|comeback|rebrand|no deposit)\b/i },
-  { cat: 'Deposit',    sub: 'deposit',    hue: 30,  re: /\b(deposit|reload|top\s?up|match|1\+1|convert|pay)\b/i },
-  { cat: 'Rebate',     sub: 'rebate',     hue: 187, re: /\b(rebate|rescue|cashback|cash\s?back|insurance)\b/i },
-  { cat: 'Spins',      sub: 'spins',      hue: 322, re: /\b(spin|slot)\b/i },
-  { cat: 'Daily',      sub: 'recurring',  hue: 210, re: /\b(daily|hourly|login|check\s?in|points?|reward|weekly|monthly|365|delights)\b/i },
-  { cat: 'VIP',        sub: 'loyalty',    hue: 350, re: /\b(vip|level|exclusive|appreciation|loyalty)\b/i },
-  { cat: 'App',        sub: 'app',        hue: 232, re: /\b(app|apk|download|install|android|ios)\b/i },
-  { cat: 'Free',       sub: 'free',       hue: 47,  re: /\b(free|giveaway|lucky|box|angpao|envelope|bonus)\b/i },
-];
-const OTHER_TYPE = { cat: 'Other', sub: 'other', hue: 215 };
-const CAT_ORDER = [...new Set(TYPE_RULES.map(r => r.cat))];
-const CAT_RANK = {};
-CAT_ORDER.forEach((c, i) => CAT_RANK[c] = i);
-CAT_RANK['Other'] = CAT_ORDER.length;
-
-// ── Column groups (one cohesive hue system, mirrors bonus categories) ──
-// Every header is bucketed into a visually distinct group so whole sets of
-// columns can be shown/hidden and stay color-consistent across every sheet.
-const COLUMN_GROUPS = [
-  { name: 'Identity', hue: 215, cols: ['url','mname','id','name','displaygroup','displayorder','image','angpaoid','angpaoimage','sysnote','message','description'] },
-  { name: 'Value',    hue: 47,  cols: ['amount','perceived_value','bonus','bonusfixed','bonusrandom','balance','displayamount','transactioncash','total_amount','avg_amount','max_amount','total_perceived','avg_perceived','commission_total','value_per_bonus','avg_daily_value'] },
-  { name: 'Withdraw', hue: 350, cols: ['minwithdraw','maxwithdraw','avg_minwithdraw','avg_maxwithdraw','headroom','avg_withdraw_headroom'] },
-  { name: 'Rollover', hue: 187, cols: ['rollover','rollover_amount','value_per_rollover','ratio','avg_rollover','avg_ratio','avg_rollover_burden'] },
-  { name: 'Limits',   hue: 30,  cols: ['mintopup','maxtopup','depositfreelimit','initialfreelimit','minround','maxround','minbet','minbetignorebalance'] },
-  { name: 'Claim',    hue: 170, cols: ['claimconfig','claimcondition','claimdatetime','reset','transactiontype','transactionid','updata','referlink'] },
-  { name: 'Timing',   hue: 266, cols: ['expiry','first_seen','last_seen','createddatetime','last_checked','tracked_days','days_visible','bonus_lifetime_days','avg_bonus_lifetime_days','hours_since_seen'] },
-  { name: 'Flags',    hue: 138, cols: ['is_new','is_commission','is_surprise','active_today','source','status','failures'] },
-  { name: 'Activity', hue: 322, cols: ['bonus_count','window_count','last_24h_count','prev_24h_count','distinct_days','bonuses_per_day','recent_share','growth_24h','stability','commission_count','commission_share'] },
-  { name: 'Links',    hue: 200, cols: ['referral_url','short_url'] },
-];
-const OTHER_GROUP = { name: 'Other', hue: 215, cols: [] };
-const GROUP_BY_COL = new Map();
-COLUMN_GROUPS.forEach(g => g.cols.forEach(c => GROUP_BY_COL.set(c, g.name)));
-function colGroup(h) {
-  const name = GROUP_BY_COL.get(h);
-  return (name && COLUMN_GROUPS.find(g => g.name === name)) || OTHER_GROUP;
-}
-
 function isLinkCol(h) {
   return h === 'url' || h === 'referral_url' || h === 'short_url';
 }
@@ -173,6 +127,47 @@ function saveHiddenRows() {
   try { localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify([...hiddenRows])); } catch {}
 }
 
+// ── Settings / layout state ──
+const SETTINGS_KEY = 'dayne_settings';
+const COL_ORDER_KEY = 'dayne_col_order';
+const SAVED_SORTS_KEY = 'dayne_saved_sorts';
+const DEFAULT_SETTINGS = { reorder: false, freezeUrl: true, density: 'cozy', persistSort: false };
+let settings = { ...DEFAULT_SETTINGS };
+let colOrder = {};
+let savedSorts = {};
+let siteFilter = null;
+let amountFilter = null;
+let rowLongPressTimer = null;
+let lastDragMovedAt = 0;
+
+function loadSettings() {
+  try { settings = { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')) }; } catch { settings = { ...DEFAULT_SETTINGS }; }
+  try { colOrder = JSON.parse(localStorage.getItem(COL_ORDER_KEY) || '{}') || {}; } catch { colOrder = {}; }
+  try { savedSorts = JSON.parse(localStorage.getItem(SAVED_SORTS_KEY) || '{}') || {}; } catch { savedSorts = {}; }
+  applySettingsToBody();
+}
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {} }
+function saveColOrder() { try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder)); } catch {} }
+function saveSavedSorts() { try { localStorage.setItem(SAVED_SORTS_KEY, JSON.stringify(savedSorts)); } catch {} }
+function applySettingsToBody() {
+  document.body.classList.toggle('reorder-on', settings.reorder);
+  document.body.classList.toggle('no-freeze', !settings.freezeUrl);
+  document.body.classList.remove('density-compact', 'density-cozy');
+  document.body.classList.add('density-' + (settings.density === 'compact' ? 'compact' : 'cozy'));
+}
+
+function resetAll() {
+  hiddenRows = new Set(); saveHiddenRows();
+  sortStates = {}; savedSorts = {}; saveSavedSorts();
+  nameExpandedRow = null; wideCols = {}; typeFilter = null; siteFilter = null; amountFilter = null;
+  sitesSort = {}; sitesSearch = ''; sitesHiddenCols = new Set();
+  hiddenGroupsBySheet = {}; colOrder = {}; saveColOrder();
+  settings = { ...DEFAULT_SETTINGS }; saveSettings(); applySettingsToBody();
+  if (sitesSearchInput) sitesSearchInput.value = '';
+  closeDetail();
+  renderCurrent();
+}
+
 const tabs = document.querySelectorAll('.tab');
 const thead = document.getElementById('tableHead');
 const tbody = document.getElementById('tableBody');
@@ -194,6 +189,7 @@ const detailBody = document.getElementById('detailBody');
 const detailClose = document.getElementById('detailClose');
 const rowMenu = document.getElementById('rowMenu');
 const rowMenuTitle = document.getElementById('rowMenuTitle');
+const rowMenuOpts = document.getElementById('rowMenuOpts');
 const rowMenuDelete = document.getElementById('rowMenuDelete');
 const rowMenuCancel = document.getElementById('rowMenuCancel');
 let pendingDeleteKey = null;
@@ -201,16 +197,35 @@ let pendingDeleteKey = null;
 function showRowMenu(row, headers, x, y) {
   const nameIdx = headers ? headers.indexOf('name') : 3;
   const amtIdx = headers ? headers.indexOf('amount') : 6;
-  const name = nameIdx !== -1 ? (row[nameIdx] ?? '') : '';
+  const urlIdx = headers ? headers.indexOf('url') : 0;
+  const name = nameIdx !== -1 ? stripTags(row[nameIdx] ?? '') : '';
   const amt = amtIdx !== -1 ? (row[amtIdx] ?? '') : '';
-  rowMenuTitle.textContent = `${name}${amt !== '' && amt != null ? ' — $' + amt : ''} · ${stripUrl(row[0] || '')}`;
+  const url = urlIdx !== -1 ? (row[urlIdx] ?? '') : '';
+  rowMenuTitle.textContent = `${name}${amt !== '' && amt != null ? ' — $' + amt : ''} · ${stripUrl(url)}`;
   pendingDeleteKey = rowKey(row, headers);
+  rowMenuOpts.innerHTML = '';
+  const addOpt = (label, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'row-menu-opt';
+    b.textContent = label;
+    b.addEventListener('click', () => { closeRowMenu(); fn(); });
+    rowMenuOpts.appendChild(b);
+  };
+  if (url) addOpt('Filter: Site — ' + stripUrl(url), () => { siteFilter = url; renderCurrent(); });
+  const cat = nameIdx !== -1 ? classifyBonus(row[nameIdx]).cat : null;
+  if (cat) addOpt('Filter: Type — ' + cat, () => { typeFilter = cat; renderCurrent(); });
+  const amtNum = parseFloat(amt);
+  if (!Number.isNaN(amtNum) && amt !== '' && amt != null) {
+    addOpt('Amount > $' + amtNum, () => { amountFilter = { op: '>', val: amtNum }; renderCurrent(); });
+    addOpt('Amount < $' + amtNum, () => { amountFilter = { op: '<', val: amtNum }; renderCurrent(); });
+  }
+  addOpt('History', () => openHistory(row, headers));
   rowMenu.hidden = false;
   const vw = window.innerWidth || 320;
   const vh = window.innerHeight || 600;
   const menuW = Math.min(340, vw - 24);
   const mx = Math.max(12, Math.min(x || 120, vw - menuW - 12));
-  const my = Math.max(12, Math.min(y || 120, vh - 200));
+  const my = Math.max(12, Math.min(y || 120, vh - 120));
   rowMenu.style.width = menuW + 'px';
   rowMenu.style.left = mx + 'px';
   rowMenu.style.top = my + 'px';
@@ -235,28 +250,200 @@ document.addEventListener('click', e => {
   if (rowMenu && !rowMenu.contains(e.target)) closeRowMenu();
 });
 
+// ── Column ordering (drag anywhere in a column, saved per sheet) ──
+function applyColOrder(viewCols, sheet) {
+  const saved = colOrder[sheet];
+  if (!saved || !saved.length) return viewCols;
+  const typeCol = viewCols.find(c => c.h === 'type');
+  const reals = viewCols.filter(c => c.h !== 'type');
+  const byName = new Map(reals.map(c => [c.h, c]));
+  const out = [];
+  saved.forEach(h => { if (byName.has(h)) { out.push(byName.get(h)); byName.delete(h); } });
+  reals.forEach(c => { if (byName.has(c.h)) { out.push(c); byName.delete(c.h); } });
+  if (typeCol) {
+    const np = out.findIndex(c => c.h === 'name');
+    out.splice(np === -1 ? 1 : np + 1, 0, typeCol);
+  }
+  return out;
+}
+
+let dragState = null;
+const colIndicator = document.createElement('div');
+colIndicator.id = 'colIndicator';
+colIndicator.style.display = 'none';
+
+function startColDrag(e, h) {
+  if (!settings.reorder) return;
+  dragState = { h, startX: e.clientX, startY: e.clientY, moved: false, insertAt: null };
+  e.preventDefault();
+  document.addEventListener('pointermove', onColDragMove);
+  document.addEventListener('pointerup', onColDragEnd);
+  document.addEventListener('pointercancel', onColDragEnd);
+}
+
+function onColDragMove(e) {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX, dy = e.clientY - dragState.startY;
+  if (!dragState.moved && Math.hypot(dx, dy) < 6) return;
+  if (!dragState.moved) {
+    dragState.moved = true;
+    clearTimeout(rowLongPressTimer);
+  }
+  const ths = [...document.querySelectorAll('#tableHead th')]
+    .filter(th => th.dataset.col !== '-1' && th.dataset.header !== dragState.h);
+  const rects = ths.map(th => th.getBoundingClientRect());
+  let insertAt = rects.length;
+  for (let k = 0; k < rects.length; k++) {
+    if (e.clientX < rects[k].left + rects[k].width / 2) { insertAt = k; break; }
+  }
+  dragState.insertAt = insertAt;
+  const boundary = insertAt === 0 ? (rects[0] ? rects[0].left : e.clientX)
+    : insertAt >= rects.length ? rects[rects.length - 1].right
+    : (rects[insertAt - 1].right + rects[insertAt].left) / 2;
+  showColIndicator(boundary);
+  document.querySelectorAll('.col-dragging').forEach(el => el.classList.remove('col-dragging'));
+  document.querySelectorAll('#tableBody td, #tableHead th').forEach(el => {
+    if (el.dataset.h === dragState.h) el.classList.add('col-dragging');
+  });
+}
+
+function onColDragEnd() {
+  if (!dragState) return;
+  if (dragState.moved && dragState.insertAt !== null) {
+    const sheet = currentSheet;
+    const viewCols = getViewCols(currentHeaders());
+    const reals = viewCols.filter(c => c.h !== 'type').map(c => c.h);
+    const from = reals.indexOf(dragState.h);
+    if (from !== -1) {
+      const item = reals.splice(from, 1)[0];
+      const to = Math.max(0, Math.min(dragState.insertAt, reals.length));
+      reals.splice(to, 0, item);
+      colOrder[sheet] = reals;
+      saveColOrder();
+    }
+    lastDragMovedAt = Date.now();
+  }
+  hideColIndicator();
+  document.querySelectorAll('.col-dragging').forEach(el => el.classList.remove('col-dragging'));
+  document.removeEventListener('pointermove', onColDragMove);
+  document.removeEventListener('pointerup', onColDragEnd);
+  document.removeEventListener('pointercancel', onColDragEnd);
+  dragState = null;
+  renderCurrent();
+}
+
+function showColIndicator(x) {
+  const wrap = document.querySelector('.table-wrapper');
+  if (!wrap) return;
+  if (!wrap.contains(colIndicator)) wrap.appendChild(colIndicator);
+  const wr = wrap.getBoundingClientRect();
+  colIndicator.style.display = 'block';
+  colIndicator.style.left = (x - wr.left + wrap.scrollLeft) + 'px';
+  colIndicator.style.top = '0px';
+  colIndicator.style.height = wrap.clientHeight + 'px';
+}
+
+function hideColIndicator() { colIndicator.style.display = 'none'; }
+
+// ── History modal: every stored value of this bonus from this site ──
+function openHistory(row, headers) {
+  if (!bonusesAllData) return;
+  const ah = bonusesAllData[0];
+  const urlIdx = headers ? headers.indexOf('url') : 0;
+  const nameIdx = headers ? headers.indexOf('name') : 3;
+  const url = urlIdx !== -1 ? (row[urlIdx] ?? '') : '';
+  const name = nameIdx !== -1 ? stripTags(row[nameIdx] ?? '') : '';
+  const ai = ah.indexOf('url'), ni = ah.indexOf('name'), si = ah.indexOf('first_seen');
+  const rows = bonusesAllData.slice(1)
+    .filter(r => !isEmptyRow(r) && r[ai] === url && stripTags(r[ni] ?? '') === name)
+    .sort((a, b) => String(b[si] || '').localeCompare(String(a[si] || '')));
+  detailTitle.textContent = 'History — ' + name;
+  detailSub.textContent = `${stripUrl(url)} · ${rows.length} record(s)`;
+  const cols = ['amount', 'perceived_value', 'first_seen', 'last_seen', 'days_visible', 'reset', 'is_commission'];
+  const names = { amount: 'Amount', perceived_value: 'Value', first_seen: 'First Seen', last_seen: 'Last Seen', days_visible: 'Days', reset: 'Reset', is_commission: 'Comm' };
+  detailHead.innerHTML = '';
+  const tr = document.createElement('tr');
+  cols.forEach(c => { const th = document.createElement('th'); th.textContent = names[c] || c; tr.appendChild(th); });
+  detailHead.appendChild(tr);
+  detailBody.innerHTML = '';
+  rows.forEach(r => {
+    const tr2 = document.createElement('tr');
+    cols.forEach(c => {
+      const td = document.createElement('td');
+      const i = ah.indexOf(c);
+      const v = i !== -1 ? (r[i] ?? '') : '';
+      td.textContent = c === 'amount' && v !== '' && v != null ? '$' + v : v;
+      tr2.appendChild(td);
+    });
+    detailBody.appendChild(tr2);
+  });
+  detailOverlay.hidden = false;
+}
+
+// ── Settings panel ──
+const settingsOverlay = document.getElementById('settingsOverlay');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsClose = document.getElementById('settingsClose');
+const setReorder = document.getElementById('setReorder');
+const setFreeze = document.getElementById('setFreeze');
+const setDensity = document.getElementById('setDensity');
+const setSort = document.getElementById('setSort');
+const deletedList = document.getElementById('deletedList');
+const settingsReset = document.getElementById('settingsReset');
+
+function openSettings() {
+  setReorder.checked = settings.reorder;
+  setFreeze.checked = settings.freezeUrl;
+  setSort.checked = settings.persistSort;
+  [...setDensity.querySelectorAll('button')].forEach(b => b.classList.toggle('active', b.dataset.d === settings.density));
+  renderDeletedList();
+  settingsOverlay.hidden = false;
+}
+function closeSettings() { settingsOverlay.hidden = true; }
+function renderDeletedList() {
+  deletedList.innerHTML = '';
+  if (!hiddenRows.size) { deletedList.innerHTML = '<div class="setting-desc">No deleted rows.</div>'; return; }
+  hiddenRows.forEach(k => {
+    const parts = String(k).split('|');
+    const url = parts[0] || '', name = parts[2] || '', amt = parts[3] || '';
+    const div = document.createElement('div'); div.className = 'deleted-item';
+    const nm = document.createElement('span'); nm.className = 'di-name';
+    nm.textContent = `${name} · ${stripUrl(url)}`;
+    const am = document.createElement('span'); am.className = 'di-amt';
+    am.textContent = amt ? '$' + amt : '';
+    const rb = document.createElement('button'); rb.type = 'button'; rb.textContent = 'Restore';
+    rb.addEventListener('click', () => { hiddenRows.delete(k); saveHiddenRows(); renderDeletedList(); renderCurrent(); });
+    div.appendChild(nm); div.appendChild(am); div.appendChild(rb);
+    deletedList.appendChild(div);
+  });
+}
+if (settingsBtn) {
+  settingsBtn.addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', e => { if (e.target === settingsOverlay) closeSettings(); });
+  setReorder.addEventListener('change', () => {
+    settings.reorder = setReorder.checked; saveSettings(); applySettingsToBody(); renderCurrent();
+  });
+  setFreeze.addEventListener('change', () => { settings.freezeUrl = setFreeze.checked; saveSettings(); applySettingsToBody(); });
+  setSort.addEventListener('change', () => { settings.persistSort = setSort.checked; saveSettings(); });
+  setDensity.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    settings.density = b.dataset.d; saveSettings(); applySettingsToBody();
+    [...setDensity.querySelectorAll('button')].forEach(x => x.classList.toggle('active', x.dataset.d === settings.density));
+  });
+  settingsReset.addEventListener('click', () => { resetAll(); closeSettings(); });
+}
+
 tabs.forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.sheet === 'reset') {
-      hiddenRows = new Set();
-      saveHiddenRows();
-      sortStates = {};
-      nameExpandedRow = null;
-      wideCols = {};
-      typeFilter = null;
-      sitesSort = {};
-      sitesSearch = '';
-      sitesHiddenCols = new Set();
-      hiddenGroupsBySheet = {};
-      if (sitesSearchInput) sitesSearchInput.value = '';
-      closeDetail();
-      renderCurrent();
+      resetAll();
       return;
     }
     tabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     currentSheet = tab.dataset.sheet;
-    sortStates = defaultSortFor(currentSheet);
+    sortStates = (settings.persistSort && savedSorts[currentSheet]) ? { ...savedSorts[currentSheet] } : defaultSortFor(currentSheet);
     nameExpandedRow = null;
     wideCols = {};
     typeFilter = null;
@@ -421,18 +608,6 @@ function rowKey(row, headers) {
 function numVal(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
 
 // ── Classification helpers ──
-function stripTags(s) {
-  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-}
-function classifyBonus(name) {
-  const clean = stripTags(name);
-  for (const rule of TYPE_RULES) if (rule.re.test(clean)) return rule;
-  return OTHER_TYPE;
-}
-function catHue(cat) {
-  const r = TYPE_RULES.find(r => r.cat === cat);
-  return r ? r.hue : OTHER_TYPE.hue;
-}
 function formatCell(val, h) {
   if (val === '' || val == null) return '';
   const n = parseFloat(val);
@@ -643,18 +818,33 @@ function renderTable() {
     });
     if (typeFilter) rows = rows.filter(r => classifyBonus(r[nameIdx]).cat === typeFilter);
   }
+  // Site / amount filters (from the row context menu)
+  const fUrlIdx = headers.indexOf('url');
+  const fAmtIdx = headers.indexOf('amount');
+  if (siteFilter && fUrlIdx !== -1) rows = rows.filter(r => (r[fUrlIdx] || '') === siteFilter);
+  if (amountFilter && fAmtIdx !== -1) {
+    rows = rows.filter(r => {
+      const v = parseFloat(r[fAmtIdx]);
+      if (Number.isNaN(v)) return false;
+      return amountFilter.op === '>' ? v > amountFilter.val : v < amountFilter.val;
+    });
+  }
   renderLegend(legendCounts);
 
   applySort(rows, sortStates, headers, currentSheet);
 
-  const viewColsAll = getViewCols(headers);
+  const viewColsAll = applyColOrder(getViewCols(headers), currentSheet);
   const hiddenGroups = hiddenGroupsFor(currentSheet);
   const viewCols = viewColsAll.filter(c =>
     c.idx === -1 || c.h === 'url' || c.h === 'name' || !hiddenGroups.has(colGroup(c.h).name)
   );
   const widths = fitWidths(headers, viewCols, rows, ALL_NUMERIC);
 
-  sheetInfo.textContent = `${viewCols.length}/${viewColsAll.length} cols · ${rows.length} rows${typeFilter ? ` · ${typeFilter} only` : ''}`;
+  let filterNote = '';
+  if (typeFilter) filterNote += ` · ${typeFilter} only`;
+  if (siteFilter) filterNote += ` · site: ${stripUrl(siteFilter)}`;
+  if (amountFilter) filterNote += ` · amount ${amountFilter.op} ${amountFilter.val}`;
+  sheetInfo.textContent = `${viewCols.length}/${viewColsAll.length} cols · ${rows.length} rows${filterNote}`;
 
   thead.innerHTML = '';
   const tr = document.createElement('tr');
@@ -695,8 +885,10 @@ function renderTable() {
       if (current === 'default') sortStates[key] = (ALL_NUMERIC.has(h) || h === 'type') ? 'desc' : 'asc';
       else if (current === 'desc') sortStates[key] = 'asc';
       else sortStates[key] = 'default';
+      if (settings.persistSort) { savedSorts[currentSheet] = { ...sortStates }; saveSavedSorts(); }
       renderTable();
     });
+    if (settings.reorder) th.addEventListener('pointerdown', (e) => startColDrag(e, h));
 
     tr.appendChild(th);
   });
@@ -706,22 +898,21 @@ function renderTable() {
   rows.forEach((row, ri) => {
     const tr = document.createElement('tr');
 
-    let longPressTimer = null;
     let suppressClickUntil = 0;
-    const cancelLongPress = () => clearTimeout(longPressTimer);
+    const cancelLongPress = () => clearTimeout(rowLongPressTimer);
     const fireLongPress = (x, y) => {
       suppressClickUntil = Date.now() + 650;
       showRowMenu(row, headers, x, y);
     };
     tr.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
-      longPressTimer = setTimeout(() => fireLongPress(e.clientX, e.clientY), 500);
+      rowLongPressTimer = setTimeout(() => fireLongPress(e.clientX, e.clientY), 500);
     });
     tr.addEventListener('mouseup', cancelLongPress);
     tr.addEventListener('mouseleave', cancelLongPress);
     tr.addEventListener('touchstart', (e) => {
       const t = e.touches[0];
-      longPressTimer = setTimeout(() => fireLongPress(t.clientX, t.clientY), 500);
+      rowLongPressTimer = setTimeout(() => fireLongPress(t.clientX, t.clientY), 500);
     }, { passive: true });
     tr.addEventListener('touchend', cancelLongPress);
     tr.addEventListener('touchmove', cancelLongPress);
@@ -736,6 +927,10 @@ function renderTable() {
     viewCols.forEach(({ h, idx }) => {
       const td = document.createElement('td');
       td.style.maxWidth = widths[h] + 'px';
+      td.dataset.h = h;
+      if (settings.reorder && h !== 'type') {
+        td.addEventListener('pointerdown', (e) => startColDrag(e, h));
+      }
 
       if (idx === -1) {
         // Derived type column
@@ -763,6 +958,7 @@ function renderTable() {
         if (val) {
           const a = document.createElement('a'); a.href = val;
           a.textContent = display; a.target = '_blank'; a.rel = 'noopener';
+          a.addEventListener('click', (e) => { if (Date.now() - lastDragMovedAt < 400) e.preventDefault(); });
           td.appendChild(a);
         } else { td.textContent = display; }
         td.classList.add('col-url');
@@ -1088,6 +1284,7 @@ function buildCombinedData() {
 }
 
 async function init() {
+  loadSettings();
   loadHiddenRows();
   const rawRaw = await loadSheet(SHEETS.raw);
   const [rh, ...rr] = rawRaw;

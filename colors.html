@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dayne Bonuses — Colour Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+      body { overflow: auto; height: auto; }
+      .lab { max-width: 1080px; margin: 0 auto; padding: 18px 20px 60px; }
+      .lab-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+      .lab-head h1 { font-size: 20px; font-weight: 800; color: var(--text); }
+      .lab-back { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 700; }
+      .lab-sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; max-width: 720px; line-height: 1.5; }
+      .lab-sub code { font-family: var(--font-mono); color: #9fd4ff; }
+      .palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 22px; }
+      .palette-chip { display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.4px; }
+      .palette-chip .dot { width: 12px; height: 12px; border-radius: 50%; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+      .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+      .swatch { width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); flex-shrink: 0; }
+      .card-title { font-size: 15px; font-weight: 800; color: var(--text); }
+      .card-sub { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+      .hue-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+      .hue-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+      .hue-val { font-family: var(--font-mono); font-size: 13px; color: #9fd4ff; min-width: 44px; text-align: right; }
+      .rule-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+      .rule-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+      .examples { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+      .ex-name { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 4px 8px; font-size: 11px; color: var(--text); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .col-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .col-chip { font-family: var(--font-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); }
+      .copy-row { margin: 22px 0 6px; display: flex; align-items: center; gap: 12px; }
+      .copy-btn { padding: 10px 18px; font-size: 13px; font-weight: 800; border: none; border-radius: 10px; background: var(--accent); color: #06101f; cursor: pointer; font-family: var(--font-body); }
+      .copy-btn:hover { filter: brightness(1.1); }
+      .copy-note { font-size: 12px; color: var(--muted); }
+      .section-title { font-size: 13px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin: 26px 0 12px; }
+      .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="lab">
+      <div class="lab-head">
+        <a class="lab-back" href="./">← Viewer</a>
+        <h1>Colour Lab</h1>
+      </div>
+      <p class="lab-sub">
+        Live preview of the viewer's colour scheme — bonus-type categories (level 1) with sub-shades (level 2),
+        plus the column groups. Drag the sliders to test hues; then paste the generated values into
+        <code>src/colors.js</code> (<code>TYPE_RULES</code> / <code>COLUMN_GROUPS</code>) to make them permanent.
+      </p>
+      <div class="section-title">Bonus types — palette (legend order)</div>
+      <div class="palette" id="palette"></div>
+      <div class="section-title">Bonus type rules</div>
+      <div class="cards" id="ruleCards"></div>
+      <div class="section-title">Column groups</div>
+      <div class="cards" id="groupCards"></div>
+      <div class="copy-row">
+        <button class="copy-btn" id="copyBtn" type="button">Copy updated hues</button>
+        <span class="copy-note" id="copyNote"></span>
+      </div>
+      <p class="hint">Hues here are also used for row tints and the frozen URL column. Adjacent legend categories are kept roughly ≥35° apart so they stay distinguishable.</p>
+    </div>
+    <script type="module" src="/colors-app.js"></script>
+  </body>
+</html>

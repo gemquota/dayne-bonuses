@@ -25,6 +25,7 @@
           <button class="upload-btn" id="uploadBtn">+ Upload CSV</button>
           <span class="file-name" id="fileName"></span>
         </div>
+        <button class="settings-btn" id="settingsBtn" type="button" title="Settings">⚙</button>
       </div>
       <div class="sheet-info" id="sheetInfo"></div>
       <div class="sites-toolbar" id="sitesToolbar" hidden>
@@ -43,8 +44,41 @@
       </div>
       <div class="row-menu" id="rowMenu" hidden>
         <div class="row-menu-title" id="rowMenuTitle"></div>
+        <div class="row-menu-opts" id="rowMenuOpts"></div>
         <button class="row-menu-delete" id="rowMenuDelete" type="button">Delete row</button>
         <button class="row-menu-cancel" id="rowMenuCancel" type="button">Cancel</button>
+      </div>
+      <div class="settings-overlay" id="settingsOverlay" hidden>
+        <div class="settings-panel">
+          <div class="settings-head">
+            <div class="settings-title">Settings</div>
+            <button class="settings-close" id="settingsClose" type="button">✕</button>
+          </div>
+          <div class="settings-body">
+            <div class="settings-section">Layout</div>
+            <div class="setting-row">
+              <div><div class="setting-label">Reorder columns</div><div class="setting-desc">Drag anywhere in a column to move it</div></div>
+              <label class="toggle"><input type="checkbox" id="setReorder"><span class="knob"></span></label>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Freeze first column</div><div class="setting-desc">Keep the URL column pinned while scrolling</div></div>
+              <label class="toggle"><input type="checkbox" id="setFreeze"><span class="knob"></span></label>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Row density</div><div class="setting-desc">Compact rows show more per screen</div></div>
+              <div class="setting-val seg" id="setDensity">
+                <button type="button" data-d="cozy">Cozy</button><button type="button" data-d="compact">Compact</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Remember sort</div><div class="setting-desc">Keep your column sort per tab</div></div>
+              <label class="toggle"><input type="checkbox" id="setSort"><span class="knob"></span></label>
+            </div>
+            <div class="settings-section">Deleted rows</div>
+            <div class="deleted-list" id="deletedList"></div>
+            <button class="settings-danger" id="settingsReset" type="button">Reset viewer</button>
+          </div>
+        </div>
       </div>
       <div class="detail-overlay" id="detailOverlay" hidden>
         <div class="detail-panel">
