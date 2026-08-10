@@ -113,7 +113,8 @@ let combinedData = null;
 let sitesSort = {};
 let sitesSearch = '';
 let sitesHiddenCols = new Set();
-let hiddenGroupsBySheet = {};
+let hiddenGroups = new Set();         // shared across All/Raw/Clean/Fresh/Upload
+let hiddenGroupsBySheet = {};         // Sites sheet only (different dataset)
 let siteDetailUrl = null;
 
 const HIDDEN_STORAGE_KEY = 'dayne_hidden_rows';
@@ -137,7 +138,10 @@ let colOrder = {};
 let savedSorts = {};
 let siteFilter = null;
 let amountFilter = null;
+let colFilters = {};
 let rowLongPressTimer = null;
+let colMenuTimer = null;
+let suppressHeaderClickUntil = 0;
 let lastDragMovedAt = 0;
 
 function loadSettings() {
@@ -159,12 +163,12 @@ function applySettingsToBody() {
 function resetAll() {
   hiddenRows = new Set(); saveHiddenRows();
   sortStates = {}; savedSorts = {}; saveSavedSorts();
-  nameExpandedRow = null; wideCols = {}; typeFilter = null; siteFilter = null; amountFilter = null;
+  nameExpandedRow = null; wideCols = {}; typeFilter = null; siteFilter = null; amountFilter = null; colFilters = {};
   sitesSort = {}; sitesSearch = ''; sitesHiddenCols = new Set();
-  hiddenGroupsBySheet = {}; colOrder = {}; saveColOrder();
+  hiddenGroups = new Set(); hiddenGroupsBySheet = {}; colOrder = {}; saveColOrder();
   settings = { ...DEFAULT_SETTINGS }; saveSettings(); applySettingsToBody();
   if (sitesSearchInput) sitesSearchInput.value = '';
-  closeDetail();
+  closeDetail(); closeRowMenu(); closeColMenu();
   renderCurrent();
 }
 
@@ -192,6 +196,10 @@ const rowMenuTitle = document.getElementById('rowMenuTitle');
 const rowMenuOpts = document.getElementById('rowMenuOpts');
 const rowMenuDelete = document.getElementById('rowMenuDelete');
 const rowMenuCancel = document.getElementById('rowMenuCancel');
+const colMenu = document.getElementById('colMenu');
+const colMenuTitle = document.getElementById('colMenuTitle');
+const colMenuOpts = document.getElementById('colMenuOpts');
+const colMenuCancel = document.getElementById('colMenuCancel');
 let pendingDeleteKey = null;
 
 function showRowMenu(row, headers, x, y) {
@@ -220,15 +228,7 @@ function showRowMenu(row, headers, x, y) {
     addOpt('Amount < $' + amtNum, () => { amountFilter = { op: '<', val: amtNum }; renderCurrent(); });
   }
   addOpt('History', () => openHistory(row, headers));
-  rowMenu.hidden = false;
-  const vw = window.innerWidth || 320;
-  const vh = window.innerHeight || 600;
-  const menuW = Math.min(340, vw - 24);
-  const mx = Math.max(12, Math.min(x || 120, vw - menuW - 12));
-  const my = Math.max(12, Math.min(y || 120, vh - 120));
-  rowMenu.style.width = menuW + 'px';
-  rowMenu.style.left = mx + 'px';
-  rowMenu.style.top = my + 'px';
+  positionMenu(rowMenu, x, y);
 }
 
 function closeRowMenu() {
@@ -246,9 +246,111 @@ rowMenuDelete.addEventListener('click', () => {
 });
 rowMenuCancel.addEventListener('click', closeRowMenu);
 rowMenu.addEventListener('click', e => e.stopPropagation());
+colMenuCancel.addEventListener('click', closeColMenu);
+colMenu.addEventListener('click', e => e.stopPropagation());
 document.addEventListener('click', e => {
   if (rowMenu && !rowMenu.contains(e.target)) closeRowMenu();
+  if (colMenu && !colMenu.contains(e.target)) closeColMenu();
 });
+
+function positionMenu(menu, x, y) {
+  menu.hidden = false;
+  const vw = window.innerWidth || 320;
+  const vh = window.innerHeight || 600;
+  const menuW = Math.min(340, vw - 24);
+  const mx = Math.max(12, Math.min(x || 120, vw - menuW - 12));
+  const my = Math.max(12, Math.min(y || 120, vh - 160));
+  menu.style.width = menuW + 'px';
+  menu.style.left = mx + 'px';
+  menu.style.top = my + 'px';
+}
+
+function closeColMenu() {
+  colMenu.hidden = true;
+}
+
+function currentData() {
+  return currentSheet === 'upload' ? uploadData
+    : currentSheet === 'raw' ? rawData
+    : currentSheet === 'fresh' ? freshData
+    : currentSheet === 'cleaned' ? cleanedData
+    : combinedData;
+}
+
+function colIsNumeric(h) {
+  if (ALL_NUMERIC.has(h)) return true;
+  const data = currentData();
+  if (!data || data.length < 2) return false;
+  const idx = data[0].indexOf(h);
+  if (idx === -1) return false;
+  const sample = data.slice(1, Math.min(50, data.length));
+  return sample.some(r => {
+    const v = (r[idx] ?? '').toString().trim();
+    return v !== '' && /^-?\d+(\.\d+)?$/.test(v);
+  });
+}
+
+function showColMenu(h, x, y) {
+  const grp = colGroup(h);
+  colMenuTitle.textContent = h;
+  colMenuTitle.style.setProperty('--hue', grp.hue);
+  colMenuOpts.innerHTML = '';
+  const addOpt = (label, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'row-menu-opt';
+    b.textContent = label;
+    b.addEventListener('click', () => { closeColMenu(); fn(); });
+    colMenuOpts.appendChild(b);
+  };
+  const f = colFilters[h] || {};
+  if (colIsNumeric(h)) {
+    const row = document.createElement('div');
+    row.className = 'col-filter-row';
+    const mkField = (label, val) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'col-filter-field';
+      const span = document.createElement('span');
+      span.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'number'; input.className = 'col-filter-input';
+      if (val !== undefined && val !== null && val !== '') input.value = val;
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyBtn.click(); });
+      wrap.appendChild(span); wrap.appendChild(input);
+      return wrap;
+    };
+    const minField = mkField('Min', f.min);
+    const maxField = mkField('Max', f.max);
+    row.appendChild(minField); row.appendChild(maxField);
+    colMenuOpts.appendChild(row);
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button'; applyBtn.className = 'row-menu-opt';
+    applyBtn.textContent = 'Apply';
+    applyBtn.addEventListener('click', () => {
+      const mn = minField.querySelector('input').value;
+      const mx = maxField.querySelector('input').value;
+      const nf = {};
+      if (mn !== '') nf.min = parseFloat(mn);
+      if (mx !== '') nf.max = parseFloat(mx);
+      if (nf.min === undefined && nf.max === undefined) delete colFilters[h];
+      else colFilters[h] = nf;
+      closeColMenu();
+      renderCurrent();
+    });
+    colMenuOpts.appendChild(applyBtn);
+    if (f.min !== undefined || f.max !== undefined) {
+      addOpt('Clear on this column', () => { delete colFilters[h]; renderCurrent(); });
+    }
+  } else {
+    const info = document.createElement('div');
+    info.className = 'col-menu-info';
+    info.textContent = 'Min/max filtering is only available for numeric columns.';
+    colMenuOpts.appendChild(info);
+  }
+  if (Object.keys(colFilters).length) {
+    addOpt('Clear all column filters', () => { colFilters = {}; renderCurrent(); });
+  }
+  positionMenu(colMenu, x, y);
+}
 
 // ── Column ordering (drag anywhere in a column, saved per sheet) ──
 function applyColOrder(viewCols, sheet) {
@@ -288,6 +390,7 @@ function onColDragMove(e) {
   if (!dragState.moved) {
     dragState.moved = true;
     clearTimeout(rowLongPressTimer);
+    clearTimeout(colMenuTimer);
   }
   const ths = [...document.querySelectorAll('#tableHead th')]
     .filter(th => th.dataset.col !== '-1' && th.dataset.header !== dragState.h);
@@ -446,7 +549,7 @@ tabs.forEach(tab => {
     sortStates = (settings.persistSort && savedSorts[currentSheet]) ? { ...savedSorts[currentSheet] } : defaultSortFor(currentSheet);
     nameExpandedRow = null;
     wideCols = {};
-    typeFilter = null;
+    closeColMenu();
     renderCurrent();
   });
 });
@@ -469,7 +572,7 @@ fileInput.addEventListener('change', (e) => {
         sortStates = defaultSortFor('upload');
         nameExpandedRow = null;
         wideCols = {};
-        typeFilter = null;
+        closeColMenu();
         renderCurrent();
       }
     });
@@ -707,16 +810,12 @@ function legendChip(label, hue, count, active, onClick) {
 }
 
 function currentHeaders() {
-  const data = currentSheet === 'upload' ? uploadData
-    : currentSheet === 'raw' ? rawData
-    : currentSheet === 'fresh' ? freshData
-    : currentSheet === 'cleaned' ? cleanedData
-    : combinedData;
+  const data = currentData();
   return data ? data[0] : null;
 }
 
 function hiddenGroupsFor(sheet) {
-  return hiddenGroupsBySheet[sheet] || new Set();
+  return sheet === 'sites' ? (hiddenGroupsBySheet[sheet] || new Set()) : hiddenGroups;
 }
 
 // Two legend rows: bonus-type categories, then column groups.
@@ -754,8 +853,9 @@ function renderLegend(counts) {
   COLUMN_GROUPS.forEach(g => {
     if (!grpCounts[g.name]) return;
     row.appendChild(legendChip(g.name, g.hue, grpCounts[g.name], !hidden.has(g.name), () => {
-      if (!hiddenGroupsBySheet[currentSheet]) hiddenGroupsBySheet[currentSheet] = new Set();
-      const set = hiddenGroupsBySheet[currentSheet];
+      const set = currentSheet === 'sites'
+        ? (hiddenGroupsBySheet[currentSheet] || (hiddenGroupsBySheet[currentSheet] = new Set()))
+        : hiddenGroups;
       if (set.has(g.name)) set.delete(g.name); else set.add(g.name);
       renderCurrent();
     }));
@@ -829,6 +929,21 @@ function renderTable() {
       return amountFilter.op === '>' ? v > amountFilter.val : v < amountFilter.val;
     });
   }
+  // Per-column min/max filters (from the column context menu)
+  const cfEntries = Object.entries(colFilters).filter(([, f]) => f && (f.min !== undefined || f.max !== undefined));
+  if (cfEntries.length) {
+    rows = rows.filter(r => {
+      for (const [h, f] of cfEntries) {
+        const idx = headers.indexOf(h);
+        if (idx === -1) continue;
+        const v = parseFloat(r[idx]);
+        if (Number.isNaN(v)) return false;
+        if (f.min !== undefined && v < f.min) return false;
+        if (f.max !== undefined && v > f.max) return false;
+      }
+      return true;
+    });
+  }
   renderLegend(legendCounts);
 
   applySort(rows, sortStates, headers, currentSheet);
@@ -844,6 +959,10 @@ function renderTable() {
   if (typeFilter) filterNote += ` · ${typeFilter} only`;
   if (siteFilter) filterNote += ` · site: ${stripUrl(siteFilter)}`;
   if (amountFilter) filterNote += ` · amount ${amountFilter.op} ${amountFilter.val}`;
+  cfEntries.forEach(([h, f]) => {
+    if (f.min !== undefined) filterNote += ` · ${h} ≥ ${f.min}`;
+    if (f.max !== undefined) filterNote += ` · ${h} ≤ ${f.max}`;
+  });
   sheetInfo.textContent = `${viewCols.length}/${viewColsAll.length} cols · ${rows.length} rows${filterNote}`;
 
   thead.innerHTML = '';
@@ -878,6 +997,7 @@ function renderTable() {
     }
 
     th.addEventListener('click', (e) => {
+      if (Date.now() < suppressHeaderClickUntil) return;
       if (h === 'mname' && e.target.classList.contains('toggle-tri')) return;
       e.stopPropagation();
       const current = sortStates[key] || 'default';
@@ -889,6 +1009,29 @@ function renderTable() {
       renderTable();
     });
     if (settings.reorder) th.addEventListener('pointerdown', (e) => startColDrag(e, h));
+
+    // Long-press / right-click column menu (min & max filters)
+    const cancelColMenu = () => clearTimeout(colMenuTimer);
+    const fireColMenu = (cx, cy) => {
+      suppressHeaderClickUntil = Date.now() + 650;
+      showColMenu(h, cx, cy);
+    };
+    th.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      colMenuTimer = setTimeout(() => fireColMenu(e.clientX, e.clientY), 500);
+    });
+    th.addEventListener('mouseup', cancelColMenu);
+    th.addEventListener('mouseleave', cancelColMenu);
+    th.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      colMenuTimer = setTimeout(() => fireColMenu(t.clientX, t.clientY), 500);
+    }, { passive: true });
+    th.addEventListener('touchend', cancelColMenu);
+    th.addEventListener('touchmove', cancelColMenu);
+    th.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      fireColMenu(e.clientX, e.clientY);
+    });
 
     tr.appendChild(th);
   });

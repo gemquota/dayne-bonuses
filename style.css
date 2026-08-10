@@ -267,7 +267,7 @@ body.reorder-on tbody td:active { cursor: grabbing; }
 .table-wrapper { position: relative; }
 
 /* ── Row long-press context menu ── */
-.row-menu {
+.row-menu, .col-menu {
   position: fixed; z-index: 90;
   background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px;
@@ -275,9 +275,11 @@ body.reorder-on tbody td:active { cursor: grabbing; }
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
 }
 
-.row-menu[hidden] { display: none; }
+.col-menu { z-index: 91; }
 
-.row-menu-opts { display: flex; flex-direction: column; gap: 8px; }
+.row-menu[hidden], .col-menu[hidden] { display: none; }
+
+.row-menu-opts, .col-menu-opts { display: flex; flex-direction: column; gap: 8px; }
 
 .row-menu-opt {
   min-height: 44px; width: 100%; border: 1px solid var(--line); border-radius: 10px;
@@ -287,10 +289,15 @@ body.reorder-on tbody td:active { cursor: grabbing; }
 }
 .row-menu-opt:hover { filter: brightness(1.2); }
 
-.row-menu-title {
+.row-menu-title, .col-menu-title {
   font-size: 13px; font-weight: 700; color: var(--text);
   word-break: break-word; line-height: 1.35;
   padding: 2px 2px 8px; border-bottom: 1px solid var(--line-soft);
+}
+
+.col-menu-title {
+  border-bottom: none; border-left: 3px solid hsl(var(--hue, 215) 70% 62%);
+  padding: 2px 2px 8px 10px; margin-bottom: -2px;
 }
 
 .row-menu-delete {
@@ -301,10 +308,33 @@ body.reorder-on tbody td:active { cursor: grabbing; }
 
 .row-menu-delete:active { background: #b42318; }
 
-.row-menu-cancel {
+.row-menu-cancel, .col-menu-cancel {
   min-height: 40px; width: 100%; border: 1px solid var(--line);
   border-radius: 10px; background: var(--panel-2); color: var(--muted);
   font-size: 14px; font-weight: 600; font-family: var(--font-body); cursor: pointer;
+}
+
+.col-filter-row { display: flex; gap: 8px; }
+
+.col-filter-field {
+  flex: 1; display: flex; flex-direction: column; gap: 4px;
+}
+
+.col-filter-field span {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.col-filter-input {
+  min-height: 40px; width: 100%; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 15px;
+  font-family: var(--font-mono); padding: 0 10px;
+}
+
+.col-filter-input:focus { outline: none; border-color: var(--accent); }
+
+.col-menu-info {
+  font-size: 13px; color: var(--muted); line-height: 1.4; padding: 4px 2px;
 }
 
 /* ── Settings panel ── */
